@@ -21,7 +21,9 @@
     <div><label for="make">Make *</label><input id="make" required maxlength="50" placeholder="Choose or type"></div>
     <div><label for="model">Model *</label><input id="model" required maxlength="50" placeholder="Choose or type"></div>
     <div><label for="plate">License plate</label><input id="plate" maxlength="15" style="text-transform:uppercase"></div>
+    <div><label for="engine">Engine <span class="muted">(optional)</span></label><input id="engine" maxlength="40" placeholder="e.g. 2.4L, V6, 5.7 Hemi"></div>
   </div>
+  <p class="muted" style="margin:4px 0 0">Knowing the engine helps us have the right parts ready. Not sure? Leave it blank.</p>
 
   <h2 style="margin-top:24px">What do you need?</h2>
   <div class="checks" id="services"></div>
@@ -85,7 +87,7 @@ $('f').onsubmit = async e => {
   e.preventDefault(); $('err').hidden = true; $('go').disabled = true;
   const body = {
     name: $('name').value, phone: $('phone').value, email: $('email').value,
-    year: $('year').value, make: $('make').value, model: $('model').value, plate: $('plate').value,
+    year: $('year').value, make: $('make').value, model: $('model').value, plate: $('plate').value, engine: $('engine').value,
     services: [...document.querySelectorAll('#services input:checked')].map(i => i.value),
     description: $('description').value, date, time, website: $('website').value,
   };

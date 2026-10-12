@@ -30,6 +30,23 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const fmtSlot = s => new Date(s.replace(' ', 'T')).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const partsOf = b => { try { return b.parts_json ? JSON.parse(b.parts_json) : null; } catch { return null; } };
+function partsHtml(b) {
+  const st = b.parts_status, p = partsOf(b);
+  if (st === 'none') return '<div class="muted">No parts needed for this service.</div>';
+  if (st === 'ready' && p) {
+    const conf = { high: 'ok', medium: '', low: 'bad' }[p.confidence] ?? '';
+    return `<div class="parts"><div><strong>Parts</strong> <span class="pill ${conf}">${esc(p.confidence)} confidence</span>
+      <span class="muted">· engine: ${esc(p.engine_assumed)} · AI suggestion — verify before buying</span></div>
+      ${p.items.map(i => `<div class="part"><strong>${esc(i.part)}</strong>${i.spec ? ' — ' + esc(i.spec) : ''}
+        ${i.part_numbers.length ? `<br><code>${i.part_numbers.map(esc).join(' · ')}</code>` : '<br><span class="muted">part number not confirmed</span>'}
+        ${i.notes ? `<br><span class="muted">${esc(i.notes)}</span>` : ''}</div>`).join('')}
+      ${p.warnings.map(w => `<div class="warn">⚠ ${esc(w)}</div>`).join('')}
+      <button class="small ghost" data-parts="${b.id}">Regenerate</button></div>`;
+  }
+  if (st === 'error' || st === 'unavailable') return `<div class="warn">Couldn't get parts: ${esc(b.parts_error || 'unknown error')} <button class="small ghost" data-parts="${b.id}">Retry</button></div>`;
+  return '<div class="muted">⏳ Looking up parts…</div>';
+}
 const carName = v => esc([v.year, v.make, v.model].filter(Boolean).join(' '));
 
 async function api(path, method = 'GET', body) {
@@ -57,6 +74,7 @@ $('tabs').onclick = e => {
 
 // ---------- Schedule ----------
 let knownIds = null;
+const asked = new Set();
 async function loadSchedule(poll = false) {
   const { bookings, unseen } = await api('/bookings?from=' + today());
   const fresh = bookings.filter(b => !b.seen);
@@ -72,26 +90,36 @@ async function loadSchedule(poll = false) {
   const booked = bookings.filter(b => b.status === 'booked');
   const supplies = {};
   for (const b of booked) for (const s of (b.services || '').split(', ').filter(Boolean)) (supplies[s] ||= []).push(`${b.year || ''} ${b.make} ${b.model}`.trim());
+  const partLines = {};
+  for (const b of booked) for (const i of (partsOf(b)?.items || [])) {
+    const key = `${i.part}${i.spec ? ' — ' + i.spec : ''}${i.part_numbers.length ? ' [' + i.part_numbers.join(' / ') + ']' : ''}`;
+    (partLines[key] ||= []).push(`${b.year || ''} ${b.make} ${b.model}`.trim());
+  }
   $('schedule').innerHTML = `
     ${fresh.length ? `<div class="card" style="border-color:var(--brand)"><strong>${fresh.length} new booking${fresh.length > 1 ? 's' : ''}</strong>
       <button class="small ghost" id="markseen" style="float:right">Mark all seen</button></div>` : ''}
     <div class="card"><h2>🛒 Supplies to get (upcoming bookings)</h2>
       ${Object.keys(supplies).length ? `<table>${Object.entries(supplies).map(([s, cars]) =>
         `<tr><td><strong>${esc(s)}</strong> × ${cars.length}</td><td class="muted">${cars.map(esc).join(' · ')}</td></tr>`).join('')}</table>`
-        : '<p class="muted">Nothing booked yet.</p>'}</div>
+        : '<p class="muted">Nothing booked yet.</p>'}
+      ${Object.keys(partLines).length ? `<h3 style="margin:16px 0 4px">Parts (AI suggestions — verify)</h3><table>${Object.entries(partLines).map(([k, cars]) =>
+        `<tr><td>${esc(k)} × ${cars.length}</td><td class="muted">${cars.map(esc).join(' · ')}</td></tr>`).join('')}</table>` : ''}</div>
     <div class="card"><h2>Upcoming appointments</h2>
       ${booked.length ? `<table><tr><th>When</th><th>Customer</th><th>Car</th><th>Work</th><th></th></tr>${booked.map(b => `
         <tr><td>${esc(fmtSlot(b.slot))} ${b.seen ? '' : '<span class="newflag">NEW</span>'}</td>
           <td>${esc(b.customer_name)}<br><span class="muted">${esc(b.phone || '')} ${esc(b.email || '')}</span></td>
-          <td>${carName(b)}<br><span class="muted">${esc(b.plate || '')}</span></td>
-          <td>${esc(b.services)}${b.description ? `<br><span class="muted">${esc(b.description)}</span>` : ''}</td>
+          <td>${carName(b)}<br><span class="muted">${esc(b.plate || '')}${b.engine ? ' · ' + esc(b.engine) : ''}</span></td>
+          <td>${esc(b.services)}${b.description ? `<br><span class="muted">${esc(b.description)}</span>` : ''}${partsHtml(b)}</td>
           <td class="actions"><button class="small" data-done="${b.id}">Done</button>
             <button class="small ghost" data-car="${b.vehicle_id}">History</button>
             <button class="small ghost" data-cancel="${b.id}">Cancel</button></td></tr>`).join('')}</table>` : '<p class="muted">No upcoming appointments.</p>'}</div>`;
+  // Kick off (or retry-once) parts lookups that haven't started or whose background job was lost
+  for (const b of booked) if (!b.parts_status && !asked.has(b.id)) { asked.add(b.id); api(`/bookings/${b.id}/parts`, 'POST').then(() => loadSchedule()).catch(() => {}); }
   const ms = $('markseen'); if (ms) ms.onclick = async () => { await api('/bookings/seen', 'POST'); loadSchedule(); };
   $('schedule').onclick = async e => {
     const t = e.target.closest('button'); if (!t) return;
     if (t.dataset.cancel && confirm('Cancel this booking? The slot opens back up.')) { await api(`/bookings/${t.dataset.cancel}/cancel`, 'POST'); loadSchedule(); }
+    if (t.dataset.parts) { t.disabled = true; t.textContent = 'Working…'; await api(`/bookings/${t.dataset.parts}/parts?force=1`, 'POST'); loadSchedule(); }
     if (t.dataset.car) openCar(Number(t.dataset.car));
     if (t.dataset.done) completeDialog(bookings.find(b => b.id == t.dataset.done));
   };

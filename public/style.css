@@ -49,3 +49,9 @@ dialog::backdrop{background:#0008}
 .combo-list{position:absolute;left:0;right:0;top:100%;z-index:10;margin:2px 0 0;padding:4px 0;list-style:none;max-height:240px;overflow-y:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px #0003}
 .combo-list li{padding:9px 12px;cursor:pointer}
 .combo-list li:hover,.combo-list li.active{background:var(--brand);color:#fff}
+
+.parts{margin-top:8px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;font-size:14px}
+.part{padding:4px 0;border-top:1px solid var(--line)}
+.part code{background:var(--bg);padding:1px 6px;border-radius:4px;font-size:13px}
+.warn{color:#b35c00;font-size:13px;margin-top:4px}
+.pill.ok{background:#ebfbee;color:var(--ok)}.pill.bad{background:#fff0f0;color:var(--bad)}
