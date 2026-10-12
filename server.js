@@ -19,7 +19,7 @@ http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
   fs.createReadStream(file).pipe(res);
 }).listen(PORT, () => {
-  console.log(`\nRemick's Garage running (${process.env.DATABASE_URL ? 'Postgres' : 'local embedded database'})`);
+  console.log(`\nRemick's Garage running (${(process.env.DATABASE_URL || process.env.POSTGRES_URL) ? 'Postgres' : 'local embedded database'})`);
   console.log(`  Customers book at:  http://localhost:${PORT}/`);
   console.log(`  Remick's dashboard: http://localhost:${PORT}/admin`);
   console.log(`  Admin password:     ${adminPassword()}\n`);
