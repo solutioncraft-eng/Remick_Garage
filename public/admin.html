@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard — Remick's Garage</title>
+<link rel="stylesheet" href="/style.css">
+</head><body>
+<header class="top"><h1>🔧 Remick's Garage — Dashboard</h1><a href="/" target="_blank">Customer booking page ↗</a></header>
+
+<main id="login" style="max-width:380px" hidden>
+  <form class="card" id="loginf"><h2>Sign in</h2>
+    <label for="pw">Password</label><input id="pw" type="password" autofocus>
+    <div id="loginerr" class="msg err" hidden></div>
+    <p><button>Sign in</button></p></form>
+</main>
+
+<main id="app" class="wide" hidden>
+  <div class="tabs" id="tabs">
+    <button data-t="schedule" class="on">Schedule <span id="badge" class="badge" hidden></span></button>
+    <button data-t="vehicles">Cars &amp; History</button>
+    <button data-t="settings">Settings</button>
+  </div>
+  <section id="schedule"></section>
+  <section id="vehicles" hidden></section>
+  <section id="settings" hidden></section>
+</main>
+
+<dialog id="dlg"></dialog>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const fmtSlot = s => new Date(s.replace(' ', 'T')).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const carName = v => esc([v.year, v.make, v.model].filter(Boolean).join(' '));
+
+async function api(path, method = 'GET', body) {
+  const r = await fetch('/api/admin' + path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { showLogin(); throw new Error('login'); }
+  const j = await r.json();
+  if (!r.ok) { alert(j.error || 'Something went wrong'); throw new Error(j.error); }
+  return j;
+}
+function showLogin() { $('app').hidden = true; $('login').hidden = false; }
+
+$('loginf').onsubmit = async e => {
+  e.preventDefault();
+  const r = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: $('pw').value }) });
+  if (!r.ok) { $('loginerr').textContent = 'Wrong password'; $('loginerr').hidden = false; return; }
+  start();
+};
+
+$('tabs').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  for (const s of ['schedule', 'vehicles', 'settings']) $(s).hidden = s !== b.dataset.t;
+  ({ schedule: loadSchedule, vehicles: loadVehicles, settings: loadSettings })[b.dataset.t]();
+};
+
+// ---------- Schedule ----------
+let knownIds = null;
+async function loadSchedule(poll = false) {
+  const { bookings, unseen } = await api('/bookings?from=' + today());
+  const fresh = bookings.filter(b => !b.seen);
+  if (poll && knownIds) {
+    const added = fresh.filter(b => !knownIds.has(b.id));
+    if (added.length) { toast(`New booking: ${added[0].year || ''} ${added[0].make} ${added[0].model} — ${fmtSlot(added[0].slot)}`); beep(); }
+  }
+  knownIds = new Set(fresh.map(b => b.id));
+  $('badge').hidden = !unseen; $('badge').textContent = unseen;
+  document.title = (unseen ? `(${unseen}) ` : '') + "Dashboard — Remick's Garage";
+  if (poll && $('schedule').hidden) return;
+
+  const booked = bookings.filter(b => b.status === 'booked');
+  const supplies = {};
+  for (const b of booked) for (const s of (b.services || '').split(', ').filter(Boolean)) (supplies[s] ||= []).push(`${b.year || ''} ${b.make} ${b.model}`.trim());
+  $('schedule').innerHTML = `
+    ${fresh.length ? `<div class="card" style="border-color:var(--brand)"><strong>${fresh.length} new booking${fresh.length > 1 ? 's' : ''}</strong>
+      <button class="small ghost" id="markseen" style="float:right">Mark all seen</button></div>` : ''}
+    <div class="card"><h2>🛒 Supplies to get (upcoming bookings)</h2>
+      ${Object.keys(supplies).length ? `<table>${Object.entries(supplies).map(([s, cars]) =>
+        `<tr><td><strong>${esc(s)}</strong> × ${cars.length}</td><td class="muted">${cars.map(esc).join(' · ')}</td></tr>`).join('')}</table>`
+        : '<p class="muted">Nothing booked yet.</p>'}</div>
+    <div class="card"><h2>Upcoming appointments</h2>
+      ${booked.length ? `<table><tr><th>When</th><th>Customer</th><th>Car</th><th>Work</th><th></th></tr>${booked.map(b => `
+        <tr><td>${esc(fmtSlot(b.slot))} ${b.seen ? '' : '<span class="newflag">NEW</span>'}</td>
+          <td>${esc(b.customer_name)}<br><span class="muted">${esc(b.phone || '')} ${esc(b.email || '')}</span></td>
+          <td>${carName(b)}<br><span class="muted">${esc(b.plate || '')}</span></td>
+          <td>${esc(b.services)}${b.description ? `<br><span class="muted">${esc(b.description)}</span>` : ''}</td>
+          <td class="actions"><button class="small" data-done="${b.id}">Done</button>
+            <button class="small ghost" data-car="${b.vehicle_id}">History</button>
+            <button class="small ghost" data-cancel="${b.id}">Cancel</button></td></tr>`).join('')}</table>` : '<p class="muted">No upcoming appointments.</p>'}</div>`;
+  const ms = $('markseen'); if (ms) ms.onclick = async () => { await api('/bookings/seen', 'POST'); loadSchedule(); };
+  $('schedule').onclick = async e => {
+    const t = e.target.closest('button'); if (!t) return;
+    if (t.dataset.cancel && confirm('Cancel this booking? The slot opens back up.')) { await api(`/bookings/${t.dataset.cancel}/cancel`, 'POST'); loadSchedule(); }
+    if (t.dataset.car) openCar(Number(t.dataset.car));
+    if (t.dataset.done) completeDialog(bookings.find(b => b.id == t.dataset.done));
+  };
+}
+function completeDialog(b) {
+  dlg(`<h2>Complete: ${carName(b)}</h2><form id="cf">
+    <label>Work done</label><input name="service" value="${esc(b.services || b.description)}">
+    <div class="row"><div><label>Mileage</label><input name="mileage" type="number" min="0"></div>
+    <div><label>Cost ($)</label><input name="cost" type="number" step="0.01" min="0"></div></div>
+    <label>Parts used</label><input name="parts" placeholder="e.g. 5W-30 synthetic 5qt, Fram PH3600">
+    <label>Notes</label><textarea name="notes"></textarea>
+    <p class="actions"><button>Save to history</button><button type="button" class="ghost" onclick="dlg()">Close</button></p></form>`);
+  $('cf').onsubmit = async e => { e.preventDefault(); await api(`/bookings/${b.id}/complete`, 'POST', Object.fromEntries(new FormData(e.target))); dlg(); loadSchedule(); };
+}
+
+// ---------- Vehicles ----------
+async function loadVehicles() {
+  $('vehicles').innerHTML = `<div class="card"><h2>Find a car</h2>
+    <div class="row"><input id="q" placeholder="Search license plate, customer name, phone, make or model…" autofocus>
+    <div><button id="addcar">+ Add car / walk-in</button></div></div>
+    <div id="vlist"></div></div>`;
+  const search = async () => {
+    const { vehicles } = await api('/vehicles?q=' + encodeURIComponent($('q').value));
+    $('vlist').innerHTML = vehicles.length ? `<table><tr><th>Plate</th><th>Car</th><th>Customer</th><th>Last service</th><th></th></tr>${vehicles.map(v => `
+      <tr><td><strong>${esc(v.plate || '—')}</strong></td><td>${carName(v)}</td><td>${esc(v.customer_name)}<br><span class="muted">${esc(v.phone || '')}</span></td>
+      <td>${esc(v.last_service || '—')} <span class="muted">(${v.service_count} jobs)</span></td><td><button class="small" data-car="${v.id}">Open</button></td></tr>`).join('')}</table>`
+      : '<p class="muted">No cars found.</p>';
+  };
+  let t; $('q').oninput = () => { clearTimeout(t); t = setTimeout(search, 200); };
+  $('vlist').onclick = e => { const b = e.target.closest('[data-car]'); if (b) openCar(Number(b.dataset.car)); };
+  $('addcar').onclick = () => {
+    dlg(`<h2>Add car / walk-in customer</h2><form id="af">
+      <label>Customer name *</label><input name="name" required>
+      <div class="row"><div><label>Phone</label><input name="phone"></div><div><label>Email</label><input name="email"></div></div>
+      <div class="row"><div><label>Year</label><input name="year" maxlength="4"></div><div><label>Make *</label><input name="make" required></div>
+      <div><label>Model *</label><input name="model" required></div><div><label>Plate</label><input name="plate"></div></div>
+      <p class="actions"><button>Save</button><button type="button" class="ghost" onclick="dlg()">Close</button></p></form>`);
+    $('af').onsubmit = async e => { e.preventDefault(); const { id } = await api('/vehicles', 'POST', Object.fromEntries(new FormData(e.target))); openCar(id); search(); };
+  };
+  search();
+}
+async function openCar(id) {
+  const { vehicle: v, records, upcoming } = await api('/vehicles/' + id);
+  const total = records.reduce((s, r) => s + (r.cost || 0), 0);
+  dlg(`<h2>${carName(v)} <span class="pill">${esc(v.plate || 'no plate')}</span></h2>
+    <p>${esc(v.customer_name)} · ${esc(v.phone || '')} ${esc(v.email || '')}</p>
+    ${upcoming.length ? `<p class="msg ok">Upcoming: ${upcoming.map(b => esc(fmtSlot(b.slot))).join(', ')}</p>` : ''}
+    <h3>Service history ${records.length ? `<span class="muted">(${records.length} jobs · $${total.toFixed(2)})</span>` : ''}</h3>
+    ${records.length ? `<table>${records.map(r => `<tr><td>${esc(r.date)}</td><td><strong>${esc(r.service)}</strong>
+      <br><span class="muted">${[r.mileage ? r.mileage.toLocaleString() + ' mi' : '', esc(r.parts), r.cost != null ? '$' + r.cost.toFixed(2) : '', esc(r.notes)].filter(Boolean).join(' · ')}</span></td>
+      <td><button class="small ghost" data-del="${r.id}">✕</button></td></tr>`).join('')}</table>` : '<p class="muted">No service recorded yet.</p>'}
+    <h3>Add a record</h3><form id="rf">
+      <div class="row"><div><label>Date</label><input type="date" name="date" value="${today()}"></div>
+      <div><label>Mileage</label><input name="mileage" type="number" min="0"></div>
+      <div><label>Cost ($)</label><input name="cost" type="number" step="0.01" min="0"></div></div>
+      <label>Service *</label><input name="service" required placeholder="Oil change">
+      <label>Parts used</label><input name="parts"><label>Notes</label><input name="notes">
+      <p class="actions"><button>Add record</button><button type="button" class="ghost" onclick="dlg()">Close</button></p></form>`);
+  $('rf').onsubmit = async e => { e.preventDefault(); await api(`/vehicles/${id}/records`, 'POST', Object.fromEntries(new FormData(e.target))); openCar(id); };
+  $('dlg').onclick = async e => { const b = e.target.closest('[data-del]'); if (b && confirm('Delete this record?')) { await api('/records/' + b.dataset.del, 'DELETE'); openCar(id); } };
+}
+
+// ---------- Settings ----------
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+async function loadSettings() {
+  const s = await api('/settings');
+  $('settings').innerHTML = `<form class="card" id="sf"><h2>Availability</h2>
+    <div class="hrs">${DAYS.map((d, i) => { const h = s.hours[i];
+      return `<label style="margin:0"><input type="checkbox" style="width:auto" data-open="${i}" ${h ? 'checked' : ''}> ${d}</label>
+      <input type="time" data-from="${i}" value="${h ? h[0] : '09:00'}"><input type="time" data-to="${i}" value="${h ? h[1] : '17:00'}">`; }).join('')}</div>
+    <div class="row">
+      <div><label>Appointment length (minutes)</label><input id="slotMinutes" type="number" min="15" step="15" value="${s.slotMinutes}"></div>
+      <div><label>Cars at once (bays)</label><input id="bays" type="number" min="1" value="${s.bays}"></div>
+      <div><label>Days customers can book ahead</label><input id="daysAhead" type="number" min="1" value="${s.daysAhead}"></div></div>
+    <label>Days off (vacations, holidays) — one date per line, YYYY-MM-DD</label>
+    <textarea id="closed">${esc(s.closedDates.join('\n'))}</textarea>
+    <h2 style="margin-top:24px">Phone notifications (optional)</h2>
+    <p class="muted">Free push alerts via <a href="https://ntfy.sh" target="_blank">ntfy.sh</a>: install the ntfy app on Remick's phone, subscribe to a hard-to-guess topic name, and type the same name here.
+    Booking details (customer name, car, work requested) are sent through ntfy.sh, so use a long random topic. Leave blank to turn off.</p>
+    <input id="ntfy" value="${esc(s.ntfyTopic)}" placeholder="e.g. remicks-garage-7f3k29xq">
+    <p><button>Save settings</button> <span id="saved" class="muted"></span></p></form>`;
+  $('sf').onsubmit = async e => {
+    e.preventDefault();
+    const hours = {};
+    for (let i = 0; i < 7; i++) hours[i] = document.querySelector(`[data-open="${i}"]`).checked
+      ? [document.querySelector(`[data-from="${i}"]`).value, document.querySelector(`[data-to="${i}"]`).value] : null;
+    await api('/settings', 'PUT', { hours, slotMinutes: $('slotMinutes').value, bays: $('bays').value, daysAhead: $('daysAhead').value,
+      closedDates: $('closed').value.split(/\s+/).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x)), ntfyTopic: $('ntfy').value });
+    $('saved').textContent = 'Saved ✓';
+  };
+}
+
+// ---------- shared ----------
+function dlg(html) { const d = $('dlg'); if (!html) return d.close(); d.innerHTML = html; if (!d.open) d.showModal(); }
+function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.append(t); setTimeout(() => t.remove(), 12000); t.onclick = () => t.remove(); }
+function beep() { try { const c = new AudioContext(), o = c.createOscillator(); o.connect(c.destination); o.frequency.value = 880; o.start(); o.stop(c.currentTime + .25); } catch {} }
+
+async function start() {
+  $('login').hidden = true; $('app').hidden = false;
+  await loadSchedule();
+  setInterval(() => loadSchedule(true).catch(() => {}), 20000);
+}
+fetch('/api/admin/settings').then(r => r.ok ? start() : showLogin());
+</script>
+</body></html>

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Book a Service — Remick's Garage</title>
+<link rel="stylesheet" href="/style.css">
+</head><body>
+<header class="top"><h1 id="shop">Remick's Garage</h1><span class="muted" style="color:#cbd2dc">Oil changes · Tire rotations · Basic service</span></header>
+<main>
+<form id="f" class="card" autocomplete="on">
+  <h2>Book a service</h2>
+  <div class="row">
+    <div><label for="name">Your name *</label><input id="name" required maxlength="100" autocomplete="name"></div>
+    <div><label for="phone">Phone</label><input id="phone" type="tel" maxlength="30" autocomplete="tel"></div>
+    <div><label for="email">Email</label><input id="email" type="email" maxlength="120" autocomplete="email"></div>
+  </div>
+  <p class="muted" style="margin:4px 0 0">Phone or email is required so we can reach you.</p>
+
+  <h2 style="margin-top:24px">Your car</h2>
+  <div class="row">
+    <div><label for="year">Year</label><input id="year" inputmode="numeric" maxlength="4" placeholder="2015"></div>
+    <div><label for="make">Make *</label><input id="make" required maxlength="50" placeholder="Toyota"></div>
+    <div><label for="model">Model *</label><input id="model" required maxlength="50" placeholder="Camry"></div>
+    <div><label for="plate">License plate</label><input id="plate" maxlength="15" style="text-transform:uppercase"></div>
+  </div>
+
+  <h2 style="margin-top:24px">What do you need?</h2>
+  <div class="checks" id="services"></div>
+  <label for="description">Anything else we should know?</label>
+  <textarea id="description" maxlength="1000" placeholder="e.g. Synthetic oil please, and there's a squeak when I brake."></textarea>
+
+  <h2 style="margin-top:24px">Pick a day &amp; time</h2>
+  <div class="days" id="days"></div>
+  <div class="slots" id="slots" style="margin-top:12px"></div>
+  <p class="muted" id="pickhint">Choose a day to see open times.</p>
+
+  <input class="hp" name="website" id="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+  <div id="err" class="msg err" hidden></div>
+  <button id="go" type="submit" disabled>Book this time</button>
+</form>
+<div id="done" class="card" hidden>
+  <h2>You're booked! ✅</h2>
+  <p id="donetxt"></p>
+  <p class="muted">Need to change something? Give us a call.</p>
+  <button class="ghost" onclick="location.reload()">Book another car</button>
+</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let date = null, time = null;
+const fmtDay = ds => new Date(ds + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+const fmtTime = t => { const [h, m] = t.split(':').map(Number); return `${(h % 12) || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+
+async function init() {
+  const cfg = await (await fetch('/api/config')).json();
+  $('shop').textContent = cfg.shopName;
+  $('services').innerHTML = cfg.services.map(s => `<label><input type="checkbox" value="${s}"> ${s}</label>`).join('');
+  const { days } = await (await fetch('/api/availability')).json();
+  $('days').innerHTML = days.map(d => `<button type="button" data-d="${d.date}" ${d.open ? '' : 'disabled'}>${fmtDay(d.date)}</button>`).join('');
+  $('days').onclick = e => { const b = e.target.closest('button'); if (b && !b.disabled) pickDay(b.dataset.d); };
+}
+async function pickDay(d) {
+  date = d; time = null; update();
+  document.querySelectorAll('#days button').forEach(b => b.classList.toggle('sel', b.dataset.d === d));
+  const { slots } = await (await fetch('/api/slots?date=' + d)).json();
+  $('slots').innerHTML = slots.map(s => `<button type="button" data-t="${s.time}" ${s.available ? '' : 'disabled'}>${fmtTime(s.time)}</button>`).join('');
+  $('pickhint').textContent = 'Choose a time.';
+  $('slots').onclick = e => { const b = e.target.closest('button'); if (!b || b.disabled) return; time = b.dataset.t;
+    document.querySelectorAll('#slots button').forEach(x => x.classList.toggle('sel', x === b)); update(); };
+}
+function update() { $('go').disabled = !(date && time); if (date && time) $('pickhint').textContent = `Selected: ${fmtDay(date)} at ${fmtTime(time)}`; }
+
+$('f').onsubmit = async e => {
+  e.preventDefault(); $('err').hidden = true; $('go').disabled = true;
+  const body = {
+    name: $('name').value, phone: $('phone').value, email: $('email').value,
+    year: $('year').value, make: $('make').value, model: $('model').value, plate: $('plate').value,
+    services: [...document.querySelectorAll('#services input:checked')].map(i => i.value),
+    description: $('description').value, date, time, website: $('website').value,
+  };
+  const r = await fetch('/api/book', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) { $('err').textContent = j.error; $('err').hidden = false; $('go').disabled = false; if (r.status === 409) pickDay(date); return; }
+  $('f').hidden = true; $('done').hidden = false;
+  $('donetxt').textContent = `${fmtDay(date)} at ${fmtTime(time)} — ${body.year} ${body.make} ${body.model}`.replace('  ', ' ');
+};
+init();
+</script>
+</body></html>
