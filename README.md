@@ -1,15 +1,22 @@
 # Remick's Garage
 
-Booking + maintenance tracker. No dependencies — needs Node 22+.
+Booking + maintenance tracker. Node 22+, Postgres.
 
-**Run:** double-click `start.bat` (or `node server.js`), then open:
+## Run locally
+Double-click `start.bat` (or `npm install && node server.js`). With no `DATABASE_URL` set it uses an embedded
+Postgres stored in `data/` — no setup. The admin password is printed at startup (saved in `data/admin-password.txt`).
 - Customers book at http://localhost:3000/
-- Remick's dashboard: http://localhost:3000/admin (password is printed at startup and saved in `data/admin-password.txt`; or set `ADMIN_PASSWORD`)
+- Dashboard: http://localhost:3000/admin
 
-**Data:** everything lives in `data/garage.db` (SQLite). Back up that file.
+## Deploy on Vercel
+1. Vercel -> Add New -> Project -> import this GitHub repo (framework preset: Other).
+2. Project -> Storage -> add **Neon (Postgres)** — this sets `DATABASE_URL` automatically.
+3. Project -> Settings -> Environment Variables, add:
+   - `ADMIN_PASSWORD` — Remick's dashboard password (required)
+   - `SHOP_TIMEZONE` — e.g. `America/Chicago` (defaults to `America/New_York`; Vercel runs in UTC)
+4. Redeploy. Tables are created automatically on first request.
 
-**Dashboard:** Schedule (new-booking alerts, supplies shopping list, mark Done -> saves to car history),
-Cars & History (search by plate / name / phone), Settings (hours, bays, days off, phone push via ntfy.sh).
-
-**Putting it online** so customers can reach it: run it on any always-on PC or host (Render, Railway, Fly, a VPS)
-with HTTPS in front. Set `ADMIN_PASSWORD` and `PORT` env vars. Don't expose it without HTTPS.
+## Notes
+- Dashboard: Schedule (new-booking alerts, supplies list, mark Done -> car history), Cars & History
+  (search by plate / name / phone), Settings (hours, bays, days off, optional ntfy.sh phone push).
+- Local data (`data/`) is git-ignored. Production data lives in Neon — use its dashboard for backups.
