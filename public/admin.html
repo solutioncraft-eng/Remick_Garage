@@ -61,7 +61,7 @@ function showLogin() { $('app').hidden = true; $('login').hidden = false; }
 $('loginf').onsubmit = async e => {
   e.preventDefault();
   const r = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: $('pw').value }) });
-  if (!r.ok) { $('loginerr').textContent = 'Wrong password'; $('loginerr').hidden = false; return; }
+  if (!r.ok) { $('loginerr').textContent = (await r.json().catch(() => ({}))).error || `Sign-in failed (${r.status})`; $('loginerr').hidden = false; return; }
   start();
 };
 
