@@ -17,9 +17,9 @@
 
   <h2 style="margin-top:24px">Your car</h2>
   <div class="row">
-    <div><label for="year">Year</label><input id="year" inputmode="numeric" maxlength="4" placeholder="2015"></div>
-    <div><label for="make">Make *</label><input id="make" required maxlength="50" placeholder="Toyota"></div>
-    <div><label for="model">Model *</label><input id="model" required maxlength="50" placeholder="Camry"></div>
+    <div><label for="year">Year</label><select id="year"><option value="">Select year</option></select></div>
+    <div><label for="make">Make *</label><input id="make" required maxlength="50" placeholder="Choose or type"></div>
+    <div><label for="model">Model *</label><input id="model" required maxlength="50" placeholder="Choose or type"></div>
     <div><label for="plate">License plate</label><input id="plate" maxlength="15" style="text-transform:uppercase"></div>
   </div>
 
@@ -44,11 +44,23 @@
   <button class="ghost" onclick="location.reload()">Book another car</button>
 </div>
 </main>
+<script src="/vehicles.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 let date = null, time = null;
 const fmtDay = ds => new Date(ds + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 const fmtTime = t => { const [h, m] = t.split(':').map(Number); return `${(h % 12) || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+
+// Year / make / model dropdowns
+const thisYear = new Date().getFullYear();
+for (let y = thisYear + 1; y >= 1990; y--) $('year').add(new Option(y, y));
+const makeKey = () => Object.keys(VEHICLES).find(k => k.toLowerCase() === $('make').value.trim().toLowerCase());
+combo($('make'), () => Object.keys(VEHICLES));
+combo($('model'), () => VEHICLES[makeKey()] || []);
+$('make').addEventListener('change', () => { // drop a model that doesn't belong to the newly chosen make
+  const models = VEHICLES[makeKey()];
+  if (models && !models.some(m => m.toLowerCase() === $('model').value.trim().toLowerCase())) $('model').value = '';
+});
 
 async function init() {
   const cfg = await (await fetch('/api/config')).json();
